@@ -1,7 +1,7 @@
 ## plotTree.boxplot
 ## written by Liam J. Revell 2016
 
-plotTree.boxplot<-function(tree,x,args.plotTree=list(),
+plotTree.boxplot<-function(tree, x, args.plotTree=list(),
 	args.boxplot=list()){
 	cw<-reorder(tree)
 	if(!is.list(x)&&class(x)!="formula"){
@@ -52,8 +52,8 @@ plotTree.boxplot<-function(tree,x,args.plotTree=list(),
 ## plotTree.barplot
 ## written by Liam J. Revell 2016, 2017, 2018
 
-plotTree.barplot<-function(tree,x,args.plotTree=list(),
-	args.barplot=list(), ...){
+plotTree.barplot<-function(tree, x, args.plotTree=list(),
+	args.barplot = list(), args.distribution = list(), ...){
 	if(hasArg(add)) add<-list(...)$add
 	else add<-FALSE
 	if(hasArg(args.axis)) args.axis<-list(...)$args.axis
@@ -107,105 +107,232 @@ plotTree.barplot<-function(tree,x,args.plotTree=list(),
 ## function to plot bars at the tips of a plotted tree
 ## written by Liam J. Revell 2014, 2015, 2018, 2019
 
-plotTree.wBars<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
+
+
+#TG: added argument: args.distribution that can take any optional argument for:
+# - measuring the central tendency (args.distribution$cent.tend)
+# - measuring the quantiles (args.distribution$probs)
+# - graphical arguments to be passed to lines or points (e.g. args.distributions <- list(lty = c(2,1), lwd = c(0.5, 1), cex = 0.5)), if the lines arguments are the same lengths as probs/2, they are used for displaying the different CIs
+# - logical arguments to display the scale axis (args.distributions = list(show.scale = TRUE))
+# - logical arguments to display the scale grid (args.distributions = list(show.grid.scale = TRUE))
+
+plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
 	method="plotTree",tip.labels=FALSE,col="grey",border=NULL,...){
+	
 	if(!inherits(tree,"phylo")) stop("tree should be an object of class \"phylo\".")
 	if(is.null(scale)){ 
 		scale<-0.3*max(nodeHeights(tree))/diff(range(x))
 	}
-	if(is.matrix(x)){
+
+	if(x_is_distribution <- is.matrix(x)){
+
+		##TG: this bit was in the orginal version, not sure where it gets recycled (so probably save to remove)
 		x.neg<-apply(x,1,function(x) sum(x[x<0]))
 		x.pos<-apply(x,1,function(x) sum(x[x>0]))
-	} else {
-		d<-scale*(max(x)-min(0,min(x)))
-		H<-nodeHeights(tree)
-		if(tip.labels==FALSE){
-			lims<-c(-max(H)-d,max(H)+d)
-			sw<-0
+
+		## Handling the extra arguments
+		if(!hasArg(args.distribution)) {
+			args.distribution <- list()
 		} else {
-			if(hasArg(fsize)) fsize<-list(...)$fsize
-			else fsize<-1
-			if(type=="phylogram"){
-				pp<-par("pin")[1]
-				sw<-fsize*(max(strwidth(tree$tip.label,
-					units="inches")))+1.37*fsize*strwidth("W",
-					units="inches")
-				alp<-optimize(function(a,H,sw,pp,d) 
-					(a*1.04*(max(H)+d)+sw-pp)^2,H=H,sw=sw,
-					pp=pp,d=d,interval=c(0,1e6))$minimum
-				lims<-c(min(H),max(H)+d+sw/alp)
-			} else if(type=="fan"){
-				pp<-par("pin")[1]
-				sw<-fsize*(max(strwidth(tree$tip.label,
-					units="inches")))+1.37*fsize*strwidth("W",
-					units="inches")
-				alp<-optimize(function(a,H,sw,pp,d) 
-					(a*2*1.04*(max(H)+d)+2*sw-pp)^2,H=H,sw=sw,pp=pp,
-						d=d,interval=c(0,1e6))$minimum
-				lims<-c(-max(H)-d-sw/alp,max(H)+d+sw/alp)
-			}	
+			args.distribution <- list(...)$args.distribution
 		}
-		if(hasArg(lims)) lims<-list(...)$lims
-		um<-tree
-		if(!is.ultrametric(um)){
-			tip.h<-sapply(1:Ntip(tree),nodeheight,tree=tree)
-			for(i in 1:Ntip(tree)){	
-				ii<-which(um$edge[,2]==i)
-				um$edge.length[ii]<-um$edge.length[ii]+(max(tip.h)-tip.h[i])
-			}
+		## Set up the default arguments
+		if(is.null(args.distribution$cent.tend)) {
+			## Default central tendency is the median
+			args.distribution$cent.tend <- stats::median
 		}
+		if(is.null(args.distribution$probs)) {
+			## Default CIs are the 95% and 50%
+			args.distribution$probs <- c(0.025, 0.25, 0.75, 0.975)
+		}
+		if(is.null(args.distribution$lty)) {
+			## Default is dashed line for the first CI and continuous line for the second CI
+			args.distribution$lty <- rev(1:(length(args.distribution$probs)/2))
+		}
+		if(is.null(args.distribution$lwd)) {
+			## Default is thin line (2/3) for the first CI and thicker (4/3) line for the second CI
+			args.distribution$lwd <- 1:(length(args.distribution$probs)/2)/1.5
+		}
+		if(is.null(args.distribution$cex)) {
+			## Default is thin line (2/3)
+			args.distribution$cex <- 2/3
+		}
+		if(is.null(args.distribution$pch)) {
+			## Default is full point (19)
+			args.distribution$pch <- 19
+		}
+		if(is.null(args.distribution$show.scale)) {
+			args.distribution$show.scale <- FALSE
+		}
+		if(is.null(args.distribution$show.grid.scale)) {
+			args.distribution$show.grid.scale <- FALSE
+		}
+
+		## Calculate the CIs and the central tendency
+		CIs <- apply(x, 1, quantile, args.distribution$probs)
+		central <- apply(x, 1, args.distribution$cent.tend)
+	} # else { #TG: no more else (now works with x as matrices)
+
+	d<-scale*(max(x)-min(0,min(x)))
+	H<-nodeHeights(tree)
+	if(tip.labels==FALSE){
+		lims<-c(-max(H)-d,max(H)+d)
+		sw<-0
+	} else {
+		if(hasArg(fsize)) fsize<-list(...)$fsize
+		else fsize<-1
 		if(type=="phylogram"){
-			fg<-par()$fg
-			if(!is.ultrametric(tree)){
-				plotTree(um,ftype=if(tip.labels) "i" else "off",
-					xlim=c(0,lims[2]),lwd=1,color="transparent",...)
-				for(i in 1:Ntip(tree)) lines(c(max(tip.h),
-					tip.h[i]),rep(i,2),lty="dotted")
-				add<-TRUE
-				par(fg="transparent")
-			} else add=FALSE
-			if(method=="plotTree") capture.output(plotTree(tree,
-				ftype=if(tip.labels) "i" else "off",xlim=c(0,lims[2]),
-				add=add,...))
-			else if(method=="plotSimmap") capture.output(plotSimmap(tree,
-				ftype=if(tip.labels) "i" else "off",xlim=c(0,lims[2]),add=add,...))
-			par(fg=fg)
+			pp<-par("pin")[1]
+			sw<-fsize*(max(strwidth(tree$tip.label,
+				units="inches")))+1.37*fsize*strwidth("W",
+				units="inches")
+			alp<-optimize(function(a,H,sw,pp,d) 
+				(a*1.04*(max(H)+d)+sw-pp)^2,H=H,sw=sw,
+				pp=pp,d=d,interval=c(0,1e6))$minimum
+			lims<-c(min(H),max(H)+d+sw/alp)
 		} else if(type=="fan"){
-			fg<-par()$fg
-			if(!is.ultrametric(tree)){
-				plotTree(um,type="fan",ftype=if(tip.labels) "i" else "off",xlim=lims,ylim=lims,
-					lwd=1,color="transparent",...)
-				um<-get("last_plot.phylo",envir=.PlotPhyloEnv)
-				par(fg="transparent")
-				plotTree(tree,type="fan",ftype=if(tip.labels) "i" else "off",xlim=lims,
-					ylim=lims,lwd=1,color="transparent",add=TRUE,...)
-				tt<-get("last_plot.phylo",envir=.PlotPhyloEnv)
-				par(fg="black",lty="solid")
-				for(i in 1:Ntip(tree)) lines(c(um$xx[i],tt$xx[i]),c(um$yy[i],tt$yy[i]),lty="dotted")
-				par(fg="transparent")
-				add<-TRUE
-			} else add<-FALSE
-			if(method=="plotTree") capture.output(plotTree(tree,type="fan",
-				ftype=if(tip.labels) "i" else "off",xlim=lims,ylim=lims,add=add,...))
-			else if(method=="plotSimmap") capture.output(plotSimmap(tree,
-				type="fan",ftype=if(tip.labels) "i" else "off",xlim=lims,
-				ylim=lims,add=add,...))
-			par(fg=fg)
+			pp<-par("pin")[1]
+			sw<-fsize*(max(strwidth(tree$tip.label,
+				units="inches")))+1.37*fsize*strwidth("W",
+				units="inches")
+			alp<-optimize(function(a,H,sw,pp,d) 
+				(a*2*1.04*(max(H)+d)+2*sw-pp)^2,H=H,sw=sw,pp=pp,
+					d=d,interval=c(0,1e6))$minimum
+			lims<-c(-max(H)-d-sw/alp,max(H)+d+sw/alp)
+		}	
+	}
+	if(hasArg(lims)) lims<-list(...)$lims
+	um<-tree
+	if(!is.ultrametric(um)){
+		tip.h<-sapply(1:Ntip(tree),nodeheight,tree=tree)
+		for(i in 1:Ntip(tree)){	
+			ii<-which(um$edge[,2]==i)
+			um$edge.length[ii]<-um$edge.length[ii]+(max(tip.h)-tip.h[i])
 		}
-		obj<-get("last_plot.phylo",envir=.PlotPhyloEnv)
-		x<-x[tree$tip.label]*scale
-		if(is.null(width))
-			width<-if(type=="fan") (par()$usr[4]-par()$usr[3])/(max(c(max(x)/max(nodeHeights(tree)),1))*length(tree$tip.label)) 
-				else if(type=="phylogram") (par()$usr[4]-par()$usr[3])/(2*length(tree$tip.label))
-		w<-width
-		if(length(col)<Ntip(tree)) col<-rep(col,ceiling(Ntip(tree)/length(col)))[1:Ntip(tree)]
-		if(is.null(names(col))) names(col)<-tree$tip.label
-		col<-col[tree$tip.label]
-		if(type=="phylogram"){
-			if(hasArg(direction)) direction<-list(...)$direction
-			else direction<-"rightwards"
-			sw<-if(tip.labels) fsize*(max(strwidth(tree$tip.label)))+fsize*strwidth("1") else strwidth("l")
+	}
+	if(type=="phylogram"){
+		fg<-par()$fg
+		if(!is.ultrametric(tree)){
+			plotTree(um,ftype=if(tip.labels) "i" else "off",
+				xlim=c(0,lims[2]),lwd=1,color="transparent",...)
+			for(i in 1:Ntip(tree)) lines(c(max(tip.h),
+				tip.h[i]),rep(i,2),lty="dotted")
+			add<-TRUE
+			par(fg="transparent")
+		} else add=FALSE
+		if(method=="plotTree") capture.output(plotTree(tree,
+			ftype=if(tip.labels) "i" else "off",xlim=c(0,lims[2]),
+			add=add,...))
+		else if(method=="plotSimmap") capture.output(plotSimmap(tree,
+			ftype=if(tip.labels) "i" else "off",xlim=c(0,lims[2]),add=add,...))
+		par(fg=fg)
+	} else if(type=="fan"){
+		fg<-par()$fg
+		if(!is.ultrametric(tree)){
+			plotTree(um,type="fan",ftype=if(tip.labels) "i" else "off",xlim=lims,ylim=lims,
+				lwd=1,color="transparent",...)
+			um<-get("last_plot.phylo",envir=.PlotPhyloEnv)
+			par(fg="transparent")
+			plotTree(tree,type="fan",ftype=if(tip.labels) "i" else "off",xlim=lims,
+				ylim=lims,lwd=1,color="transparent",add=TRUE,...)
+			tt<-get("last_plot.phylo",envir=.PlotPhyloEnv)
+			par(fg="black",lty="solid")
+			for(i in 1:Ntip(tree)) lines(c(um$xx[i],tt$xx[i]),c(um$yy[i],tt$yy[i]),lty="dotted")
+			par(fg="transparent")
+			add<-TRUE
+		} else add<-FALSE
+		if(method=="plotTree") capture.output(plotTree(tree,type="fan",
+			ftype=if(tip.labels) "i" else "off",xlim=lims,ylim=lims,add=add,...))
+		else if(method=="plotSimmap") capture.output(plotSimmap(tree,
+			type="fan",ftype=if(tip.labels) "i" else "off",xlim=lims,
+			ylim=lims,add=add,...))
+		par(fg=fg)
+	}
+	obj<-get("last_plot.phylo",envir=.PlotPhyloEnv)
+
+	## Scaling/ordering the values
+	if(!x_is_distribution) {
+		x <- x[tree$tip.label]*scale
+	} else {
+		x <- x*scale
+		central <- central[tree$tip.label]*scale
+		CIs <- CIs[, tree$tip.label]*scale
+	}
+
+	if(is.null(width)) 
+		width<-if(type=="fan") (par()$usr[4]-par()$usr[3])/(max(c(max(x)/max(nodeHeights(tree)),1))*length(tree$tip.label)) 
+			else if(type=="phylogram") (par()$usr[4]-par()$usr[3])/(2*length(tree$tip.label))
+	w<-width
+	if(length(col)<Ntip(tree)) col<-rep(col,ceiling(Ntip(tree)/length(col)))[1:Ntip(tree)]
+	if(is.null(names(col))) names(col)<-tree$tip.label
+	col<-col[tree$tip.label]
+	if(type=="phylogram"){
+		if(hasArg(direction)) direction<-list(...)$direction
+		else direction<-"rightwards"
+		sw<-if(tip.labels) fsize*(max(strwidth(tree$tip.label)))+fsize*strwidth("1") else strwidth("l")
+
+		if(x_is_distribution) {
+			## Reset plot (debug)
+			# capture.output(plotTree(tree, ftype=if(tip.labels) "i" else "off",xlim=c(0,lims[2]), add=add, mar=c(5, 4, 4, 2) + 0.1))
+
+            ## Pretty zero
+            zero <- max(obj$xx) + abs(max(pretty(CIs, n = 3))) + sw
+           	## Base zero
+			#zero <- max(obj$xx) + abs(min(CIs)) + sw
+            ## Get the scale labels
+            real_labels <- pretty(CIs, n = 3)
+
+            ## Adding the legend
+            if(args.distribution$show.scale) {
+            	## TG: warning
+            	warning("TG: not sure the scale is actually correct, to be checked.")
+                ## Translate them into the real data labels
+                orig_labels <- pretty(CIs/scale, n = 3)
+                ## Adding the axis
+                if(length(real_labels) == length(orig_labels)) {
+                	axis(side = 1, at = zero+real_labels, labels = orig_labels)
+            	} else {
+            		## Find the relation between the real labels and the original ones
+            		common <- real_labels[(real_labels %in% orig_labels)]
+            		## If there's something in common, find an eventual shift
+            		if(length(common) > 0) {
+            			shift <- diff(c(which(real_labels == common), which(orig_labels == common)))
+            			if(shift < 0) {
+            				real_labels <- real_labels[shift]
+            			} else {
+            				orig_labels <- orig_labels[-shift]
+            			}
+            			if(length(real_labels) == length(orig_labels)) {
+                			axis(side = 1, at = zero+real_labels, labels = orig_labels)
+                		}
+            		}
+            	}
+            }
+            if(args.distribution$show.grid.scale) {
+                ## Adding the grid lines
+                for(i in 1:length(real_labels)) {
+                    abline(v = zero+real_labels[i], col = "grey")
+                }
+            }
+
+			for(i in 1:length(central)) {
+				## Location at the tip
+				tip_loc <- obj$yy[i] + sw
+
+				## Quantiles
+				for(ci in 1:(length(args.distribution$probs)/2)) {
+					## Select the confidence interval
+					ci_vals <- CIs[c(ci, nrow(CIs)-(ci-1)), i]
+					## Plot the line
+					lines(x = ci_vals + zero, y = rep(tip_loc, 2), lty = args.distribution$lty[ci], lwd = args.distribution$lwd[ci], col = col[i])
+				}
+				## Add the point
+				points(x = central[i] + zero, y = tip_loc, col = col[i], pch = args.distribution$pch, cex = args.distribution$cex)
+			}
+
+		} else {
 			for(i in 1:length(x)){
+				## Plot the bar as a polygon
 				dx<-max(obj$xx)
 				dy<-obj$yy[i]
 				x1<-x2<-dx+sw
@@ -215,10 +342,89 @@ plotTree.wBars<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
 				polygon(c(x1,x2,x3,x4)-min(0,min(x)),
 					c(y1,y2,y3,y4),col=col[i],border=border)
 			}
-		} else if(type=="fan"){
-			h<-max(nodeHeights(tree))
-			sw<-if(tip.labels) fsize*(max(strwidth(tree$tip.label)))+fsize*strwidth("1") else strwidth("l")
+		}
+	} else if(type=="fan"){
+
+	## DEBUG: reset
+	# capture.output(plotTree(tree,type="fan", ftype=if(tip.labels) "i" else "off",xlim=lims,ylim=lims,add=add, mar=c(5, 4, 4, 2) + 0.1))
+
+		h<-max(nodeHeights(tree))
+		sw<-if(tip.labels) fsize*(max(strwidth(tree$tip.label)))+fsize*strwidth("1") else strwidth("l")
+		
+		if(x_is_distribution) {
+
+        	## Pretty zero
+        	zero <- max(obj$xx) + abs(max(pretty(CIs, n = 3))) + sw
+            ## Get the scale labels
+            real_labels <- pretty(CIs, n = 3)
+            
+			## Adding a legend
+			if(args.distribution$show.grid.scale) {
+	            ## Plot the different radiuses
+	            for(i in 1:length(real_labels)) {
+	            	plotrix::draw.circle(0, 0, zero + real_labels[i], border = "grey")
+	            }
+			}
+
+			if(args.distribution$show.scale) {
+				warning("TG: not sure legend is correct!")
+				points(x = zero + real_labels, y = rep(0, length(real_labels)), pch = "|", cex = 0.5)
+                axis(side = 1, at = zero+real_labels, labels = round(real_labels/scale))
+			}
+
+# x_start<-s*h*cos(theta)+s*cos(theta)*sw
+# y_start<-s*h*sin(theta)+s*sin(theta)*sw
+# x_end<-x_start-s*min(0,min(x))*cos(theta)
+# y_end<-y_start-s*min(0,min(x))*sin(theta)
+## Where's the point at:
+# x_loc<-s*x[i]*cos(theta)+x_end
+# y_loc<-s*x[i]*sin(theta)+y_end
+
+
+			## Scalar for the values to plot
+			for(i in 1:length(central)) {
+				## Get the angle
+				theta <- atan(obj$yy[i]/obj$xx[i])
+				## Get the orientation
+				if(obj$xx[i] > 0) {
+					s <- 1+abs(min(CIs))+(max(obj$xx)*scale)
+				} else {
+					s <- -1-abs(min(CIs))-(max(obj$xx)*scale)
+				}
+				
+				## Tip location
+				x_start<-s*h*cos(theta)+s*cos(theta)*sw
+				y_start<-s*h*sin(theta)+s*sin(theta)*sw
+
+				## End location
+				x_end <- x_start-s*min(0,min(x))*cos(theta)
+				y_end <- y_start-s*min(0,min(x))*sin(theta)
+
+				## Display (for debug)
+				# lines(x = c(x_start, x_end), y = c(y_start, y_end), lwd = 1, col= "grey")
+
+				## Quantiles
+				for(ci in 1:(length(args.distribution$probs)/2)) {
+					## Select the confidence interval
+					ci_vals <- CIs[c(ci, nrow(CIs)-(ci-1)), i]
+					## Plot the line
+					lines(x = c(s*ci_vals[1]*cos(theta)+x_start,
+								s*ci_vals[2]*cos(theta)+x_end),
+						  y = c(s*ci_vals[1]*sin(theta)+y_start,
+						  	    s*ci_vals[2]*sin(theta)+y_end),
+						  lty = args.distribution$lty[ci],
+						  lwd = args.distribution$lwd[ci],
+						  col = col[i])
+				}
+
+				## Add the point
+				points(x = s*central[i]*cos(theta)+x_end, y = s*central[i]*sin(theta)+y_end, col = col[i], pch = args.distribution$pch, cex = args.distribution$cex)
+			}
+
+
+		} else {
 			for(i in 1:length(x)){
+				## Plot the bars as polygons
 				theta<-atan(obj$yy[i]/obj$xx[i])
 				s<-if(obj$xx[i]>0) 1 else -1
 				dx<-s*h*cos(theta)+s*cos(theta)*sw
@@ -233,9 +439,10 @@ plotTree.wBars<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
 				y4<-s*x[i]*sin(theta)+y1
 				polygon(c(x1,x2,x3,x4),c(y1,y2,y3,y4),col=col[i],
 					border=border)
-			}	
+			}
 		}
 	}
+	# } #TG: no more else (see line 172)
 	invisible(obj)
 }
 
