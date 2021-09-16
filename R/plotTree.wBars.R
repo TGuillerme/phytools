@@ -292,20 +292,7 @@ plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
                 if(length(real_labels) == length(orig_labels)) {
                 	axis(side = 1, at = zero+real_labels, labels = orig_labels)
             	} else {
-            		## Find the relation between the real labels and the original ones
-            		common <- real_labels[(real_labels %in% orig_labels)]
-            		## If there's something in common, find an eventual shift
-            		if(length(common) > 0) {
-            			shift <- diff(c(which(real_labels == common), which(orig_labels == common)))
-            			if(shift < 0) {
-            				real_labels <- real_labels[shift]
-            			} else {
-            				orig_labels <- orig_labels[-shift]
-            			}
-            			if(length(real_labels) == length(orig_labels)) {
-                			axis(side = 1, at = zero+real_labels, labels = orig_labels)
-                		}
-            		}
+            		## STOP can't do that for now
             	}
             }
             if(args.distribution$show.grid.scale) {
@@ -372,56 +359,38 @@ plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
                 axis(side = 1, at = zero+real_labels, labels = round(real_labels/scale))
 			}
 
-# x_start<-s*h*cos(theta)+s*cos(theta)*sw
-# y_start<-s*h*sin(theta)+s*sin(theta)*sw
-# x_end<-x_start-s*min(0,min(x))*cos(theta)
-# y_end<-y_start-s*min(0,min(x))*sin(theta)
-## Where's the point at:
-# x_loc<-s*x[i]*cos(theta)+x_end
-# y_loc<-s*x[i]*sin(theta)+y_end
-
-
+			## Rotation functions
+			rotate.xy <- function(x,y,s,theta) {
+				return(list(x = s*(x*cos(theta) - y*sin(theta)),
+							y = s*(x*sin(theta) + y*sin(theta))))
+			}
 			## Scalar for the values to plot
 			for(i in 1:length(central)) {
 				## Get the angle
 				theta <- atan(obj$yy[i]/obj$xx[i])
 				## Get the orientation
-				if(obj$xx[i] > 0) {
-					s <- 1+abs(min(CIs))+(max(obj$xx)*scale)
-				} else {
-					s <- -1-abs(min(CIs))-(max(obj$xx)*scale)
-				}
-				
-				## Tip location
-				x_start<-s*h*cos(theta)+s*cos(theta)*sw
-				y_start<-s*h*sin(theta)+s*sin(theta)*sw
-
-				## End location
-				x_end <- x_start-s*min(0,min(x))*cos(theta)
-				y_end <- y_start-s*min(0,min(x))*sin(theta)
-
-				## Display (for debug)
-				# lines(x = c(x_start, x_end), y = c(y_start, y_end), lwd = 1, col= "grey")
+				s <- if(obj$xx[i]>0) 1 else -1
 
 				## Quantiles
 				for(ci in 1:(length(args.distribution$probs)/2)) {
 					## Select the confidence interval
 					ci_vals <- CIs[c(ci, nrow(CIs)-(ci-1)), i]
+
+					## Get the rotated coordinates
+					line_coords <- rotate.xy(zero+ci_vals, rep(0,2), s, theta)
+
 					## Plot the line
-					lines(x = c(s*ci_vals[1]*cos(theta)+x_start,
-								s*ci_vals[2]*cos(theta)+x_end),
-						  y = c(s*ci_vals[1]*sin(theta)+y_start,
-						  	    s*ci_vals[2]*sin(theta)+y_end),
-						  lty = args.distribution$lty[ci],
-						  lwd = args.distribution$lwd[ci],
-						  col = col[i])
+					lines(x = line_coords$x, y = line_coords$y, lty = args.distribution$lty[ci], lwd = args.distribution$lwd[ci], col = col[i])
 				}
 
-				## Add the point
-				points(x = s*central[i]*cos(theta)+x_end, y = s*central[i]*sin(theta)+y_end, col = col[i], pch = args.distribution$pch, cex = args.distribution$cex)
+				## Add the central tendencies
+				point_coords <- rotate.xy(zero + central[i], 0, s, theta)
+				points(x = point_coords$x,
+					   y = point_coords$y,
+					   col = col[i],
+					   pch = args.distribution$pch,
+					   cex = args.distribution$cex)
 			}
-
-
 		} else {
 			for(i in 1:length(x)){
 				## Plot the bars as polygons
