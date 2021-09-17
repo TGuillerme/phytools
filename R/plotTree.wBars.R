@@ -121,7 +121,7 @@ plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
 	
 	if(!inherits(tree,"phylo")) stop("tree should be an object of class \"phylo\".")
 	if(is.null(scale)){ 
-		scale<-0.3*max(nodeHeights(tree))/diff(range(x))
+		scale<-0.3*max(phytools::nodeHeights(tree))/diff(range(x))
 	}
 
 	if(x_is_distribution <- is.matrix(x)){
@@ -174,7 +174,7 @@ plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
 	} # else { #TG: no more else (now works with x as matrices)
 
 	d<-scale*(max(x)-min(0,min(x)))
-	H<-nodeHeights(tree)
+	H<-phytools::nodeHeights(tree)
 	if(tip.labels==FALSE){
 		lims<-c(-max(H)-d,max(H)+d)
 		sw<-0
@@ -260,7 +260,7 @@ plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
 	}
 
 	if(is.null(width)) 
-		width<-if(type=="fan") (par()$usr[4]-par()$usr[3])/(max(c(max(x)/max(nodeHeights(tree)),1))*length(tree$tip.label)) 
+		width<-if(type=="fan") (par()$usr[4]-par()$usr[3])/(max(c(max(x)/max(phytools::nodeHeights(tree)),1))*length(tree$tip.label)) 
 			else if(type=="phylogram") (par()$usr[4]-par()$usr[3])/(2*length(tree$tip.label))
 	w<-width
 	if(length(col)<Ntip(tree)) col<-rep(col,ceiling(Ntip(tree)/length(col)))[1:Ntip(tree)]
@@ -275,12 +275,11 @@ plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
 			## Reset plot (debug)
 			# capture.output(plotTree(tree, ftype=if(tip.labels) "i" else "off",xlim=c(0,lims[2]), add=add, mar=c(5, 4, 4, 2) + 0.1))
 
-            ## Pretty zero
-            zero <- max(obj$xx) + abs(max(pretty(CIs, n = 3))) + sw
-           	## Base zero
-			#zero <- max(obj$xx) + abs(min(CIs)) + sw
-            ## Get the scale labels
-            real_labels <- pretty(CIs, n = 3)
+			## Get the scale labels
+            real_labels <- pretty(x, n = 3)
+
+            ## Get the base zero
+			zero <- max(obj$xx) + sw + ifelse(args.distribution$show.grid.scale || args.distribution$show.scale, abs(min(real_labels)), abs(min(x)))
 
             ## Adding the legend
             if(args.distribution$show.scale) {
@@ -302,9 +301,17 @@ plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
                 }
             }
 
+            ## Add the title
+            if(!is.null(list(...)$main)) {
+            	main <- list(...)$main
+            	x_pos <- (max(range(obj$xx)) + sw + abs(max(x)))/2
+            	y_pos <- max(obj$yy)+(max(obj$yy)*0.02)
+            	text(x = x_pos, y = y_pos, label = main)
+            } 
+
 			for(i in 1:length(central)) {
 				## Location at the tip
-				tip_loc <- obj$yy[i] + sw
+				tip_loc <- obj$yy[i]
 
 				## Quantiles
 				for(ci in 1:(length(args.distribution$probs)/2)) {
@@ -335,7 +342,7 @@ plotTree.wBars_modif<-function(tree,x,scale=NULL,width=NULL,type="phylogram",
 	## DEBUG: reset
 	# capture.output(plotTree(tree,type="fan", ftype=if(tip.labels) "i" else "off",xlim=lims,ylim=lims,add=add, mar=c(5, 4, 4, 2) + 0.1))
 
-		h<-max(nodeHeights(tree))
+		h<-max(phytools::nodeHeights(tree))
 		sw<-if(tip.labels) fsize*(max(strwidth(tree$tip.label)))+fsize*strwidth("1") else strwidth("l")
 		
 		if(x_is_distribution) {
